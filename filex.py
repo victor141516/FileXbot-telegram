@@ -131,10 +131,21 @@ mime_conv = {'application/epub+zip' : 'D', 'application/java-archive' : 'D', 'ap
 icon_mime = {'A' : '🎵', 'D' : '📄', 'P' : '🏞', 'U' : '❔', 'V' : '📹 '}
 
 
-@bot.message_handler(commands=['start', 'help'])
-def send_welcome(message):
+@bot.message_handler(commands=['help'])
+def help(message):
+    bot.send_message(message.from_user.id, "- Write /start to begin\n- You can send files, images, videos, etc. and they will be stored in your current path\n- If you write a message to the bot, it will make a directory with that name in the current path\n- You can delete files or directories using the red cross next to them\n- I have tried to make this bot as similar as possible to a basic file explorer\n- You can donate using /donate")
+
+@bot.message_handler(commands=['donate'])
+def help(message):
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.add(telebot.types.InlineKeyboardButton('PayPal', url='https://www.paypal.me/victor141516'))
+    bot.send_message(message.from_user.id, "Thank you!", reply_markup=markup)
+
+@bot.message_handler(commands=['start'])
+def start(message):
     telegram_id = message.from_user.id
 
+    bot.send_message(telegram_id, "- Write /start to begin\n- You can send files, images, videos, etc. and they will be stored in your current path\n- If you write a message to the bot, it will make a directory with that name in the current path\n- I have tried to make this bot as similar as possible to a basic file explorer\n- You can donate using /donate")
     db.insert('user', {'name': message.from_user.username, 'telegram_id': telegram_id}, {'telegram_id' : telegram_id})
     user_id = db.select('user', "telegram_id = " + str(telegram_id))[0]['id']
 
