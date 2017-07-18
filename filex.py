@@ -209,10 +209,27 @@ def handle_docs(message):
         explorer.new_file(message.message_id, "voice" + str(message.date), 'A', message.voice.file_size)
     elif (message.contact != None):
         explorer.new_file(message.message_id, "contact" + str(message.date), 'D', message.contact.file_size)
+    elif (message.text != None):
+        explorer.new_file(message.message_id, message.text.split('\n', 1)[0], 'D', len(message.text))
 
 
-    # bot.reply_to(message, "👌")
     send_replacing_message(telegram_id, bot)
+
+@bot.message_handler(func=lambda m: True)
+def text_message(message):
+    if (message.forward_from):
+        return handle_docs(message)
+
+    new_directory_name = message.text
+    telegram_id = message.from_user.id
+    explorer = get_or_create_explorer(telegram_id)
+    explorer.new_directory(new_directory_name)
+    content = explorer.get_directory_content()
+    keyboard = content_builder(content, len(explorer.path) > 1)
+    remove_messages(telegram_id, bot)
+    message_sent = bot.send_message(telegram_id, explorer.get_path_string(), reply_markup=keyboard)
+    explorer.last_action_message_ids.append(message_sent.message_id)
+
 
 @bot.message_handler(func=lambda m: True)
 def new_directory(message):
@@ -236,6 +253,9 @@ def callback(call):
     if (call.data == ".."):
         explorer.go_to_parent_directory()
 
+    if (call.data == "."):
+        pass
+
     elif (action == "d"):
         explorer.go_to_directory(content_id)
 
@@ -244,19 +264,23 @@ def callback(call):
         bot.forward_message(telegram_id, telegram_id, content_id)
 
     elif (action == "r"):
-        is_directory = content_id[:1] == "d"
-        content_id = content_id[1:]
-        if (is_directory):
-            explorer.remove_directories([content_id])
-        else:
-            explorer.remove_files([content_id])
+        markup = telebot.types.InlineKeyboardMarkup()
+        markup.add(telebot.types.InlineKeyboardButton('✅', callback_data='c' + call.data))
+        markup.add(telebot.types.InlineKeyboardButton('❌', callback_data='.'))
+        bot.send_message(telegram_id, "Are you sure?", reply_markup=markup)
+        return
 
-    # elif (action == "n"):
-    #     markup = telebot.types.ForceReply(selective=False)
-    #     remove_messages(telegram_id, bot)
-    #     message_sent = bot.send_message(telegram_id, "Send me 📁 name", reply_markup=markup)
-    #     explorer.last_action_message_ids.append(message_sent.message_id)
-    #     return
+    elif (action == "c"):
+        action = content_id[:1]
+        content_id = content_id[1:]
+        if (action == "r"):
+            is_directory = content_id[:1] == "d"
+            content_id = content_id[1:]
+            if (is_directory):
+                explorer.remove_directories([content_id])
+            else:
+                explorer.remove_files([content_id])
+
     send_replacing_message(telegram_id, bot)
 def remove_messages(telegram_id, bot):
     explorer = get_or_create_explorer(telegram_id)
@@ -278,7 +302,6 @@ def get_or_create_explorer(id):
 
 def content_builder(content, up=True):
     markup = telebot.types.InlineKeyboardMarkup()
-    # markup.add(telebot.types.InlineKeyboardButton('New 📁', callback_data='n')) # Show button for directory creation
     if (up):
         markup.add(telebot.types.InlineKeyboardButton('⤴️ Go up', callback_data='..'))
     if (content['directories']):
