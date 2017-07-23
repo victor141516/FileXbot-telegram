@@ -1,25 +1,24 @@
 # -*- coding: utf-8 -*-
 
-import telebot
-import sqlite3
-import threading
+from flask import Flask, request
+import os
 from re import escape
+import psycopg2
+import psycopg2.extras
+import telebot
+import threading
 
 class DbHandler(object):
     def __init__(self, db_name):
         super(DbHandler, self).__init__()
         self.db_name = db_name
-        self.lock = threading.Lock()
+        self.db = psycopg2.connect(self.db_name)
 
     def __db_connect__(self):
-        self.lock.acquire(True)
-        self.db = sqlite3.connect(self.db_name)
-        self.db.row_factory = sqlite3.Row
-        self.cursor = self.db.cursor()
+        self.cursor = self.db.cursor(cursor_factory=psycopg2.extras.DictCursor)
 
     def __db_disconnect__(self):
-        self.db.close()
-        self.lock.release()
+        pass
 
     def insert(self, table, values, updater=None):
         try:
@@ -27,13 +26,14 @@ class DbHandler(object):
             if (not updater):
                 updater = values
 
-            updater_str = ', '.join([k + "='" + str(updater[k]) + "'" for k in updater.keys()])
-            values_str = ', '.join(["'" + str(values[k]) + "'" for k in values.keys()])
-            columns_str = ', '.join(["'" + str(k) + "'" for k in values.keys()])
-            where_str = 'AND '.join([k + "='" + str(updater[k]) + "'" for k in updater.keys()])
-            exists = len(self.cursor.execute("SELECT * FROM " + table + " WHERE (" + where_str + ")").fetchall())
+            updater_str = ', '.join([(k + (" is " if updater[k] == "NULL" else "=") + ("NULL" if updater[k] == "NULL" else ("'" + str(updater[k]) + "'"))) for k in updater.keys()])
+            values_str = ', '.join([("NULL" if updater[k] == "NULL" else ("'" + str(updater[k]) + "'")) for k in values.keys()])
+            columns_str = ', '.join([str(k) for k in values.keys()])
+            where_str = ' AND '.join([(k + (" is " if updater[k] == "NULL" else "=") + ("NULL" if updater[k] == "NULL" else ("'" + str(updater[k]) + "'"))) for k in updater.keys()])
+            exists = len(self.select(table, where_str))
+
             if (exists):
-                values_str = ', '.join([k + "='" + str(values[k]) + "'" for k in values.keys()])
+                values_str = ', '.join([(k + "=" + ("NULL" if updater[k] == "NULL" else ("'" + str(updater[k]) + "'"))) for k in values.keys()])
                 self.cursor.execute("UPDATE " + table + " SET " + values_str + " WHERE " + where_str)
                 self.db.commit()
                 self.__db_disconnect__()
@@ -44,7 +44,7 @@ class DbHandler(object):
             self.__db_disconnect__()
             return True
         except Exception as e:
-            raise (e)
+            print(e)
             self.__db_disconnect__()
             return False
 
@@ -59,7 +59,7 @@ class DbHandler(object):
             self.__db_disconnect__()
             return data
         except Exception as e:
-            print (e)
+            print(e)
             self.__db_disconnect__()
             return False
 
@@ -74,25 +74,25 @@ class DbHandler(object):
             self.__db_disconnect__()
             return True
         except Exception as e:
-            print (e)
+            print(e)
             self.__db_disconnect__()
             return False
 class Explorer(object):
     def __init__(self, telegram_id):
         super(Explorer, self).__init__()
-        self.user = db.select('user', "telegram_id = " + str(telegram_id))[0]
-        self.path = [db.select('directory', "name = '/' AND parent_directory_id = 'NULL' AND user_id = " + str(self.user['id']))[0]['id']]
+        self.user = db.select('users', "telegram_id = " + str(telegram_id))[0]
+        self.path = [db.select('directories', "name = '/' AND parent_directory_id is NULL AND user_id = " + str(self.user['id']))[0]['id']]
         self.last_action_message_ids = []
 
     def get_path_string(self):
         if (len(self.path) == 1):
             return '/'
         try:
-            directory_ids_string = ', '.join([str(int(each)) for each in self.path])
+            directory_ids_string = ', '.join([(str(int(each))) for each in self.path])
         except Exception as e:
             return False
-        directories = db.select('directory', "id in (" + directory_ids_string + ")")
-        return '/'.join([directory['name'] for directory in directories])[1:]
+        directories = db.select('directories', "id in (" + directory_ids_string + ")")
+        return '/' + '/'.join([(directory['name']) for directory in directories])[:-1]
 
 
     def get_directory_content(self, directory_id=None):
@@ -105,8 +105,8 @@ class Explorer(object):
         except Exception as e:
             return False
         return {
-                'directories': db.select('directory', "parent_directory_id = " + str(directory_id) + " AND user_id = " + str(self.user['id'])),
-                'files': db.select('file', "directory_id = " + str(directory_id) + " AND user_id = " + str(self.user['id']))
+                'directories': db.select('directories', "parent_directory_id = " + str(directory_id) + " AND user_id = " + str(self.user['id'])),
+                'files': db.select('files', "directory_id = " + str(directory_id) + " AND user_id = " + str(self.user['id']))
             }
 
     def go_to_directory(self, directory_id):
@@ -114,7 +114,7 @@ class Explorer(object):
             str(int(directory_id))
         except Exception as e:
             return False
-        directory_id = db.select('directory', "id = " + directory_id)[0]['id']
+        directory_id = db.select('directories', "id = " + directory_id)[0]['id']
         self.path.append(directory_id)
 
     def go_to_parent_directory(self):
@@ -125,36 +125,52 @@ class Explorer(object):
     def new_directory(self, directory_name, parent_directory_id=None):
         if (not parent_directory_id):
             parent_directory_id = self.path[-1:][0]
-        return db.insert('directory', {'name': directory_name.replace("'", "").replace('"', ""), 'parent_directory_id': parent_directory_id, 'user_id': self.user['id']})
+        return db.insert('directories', {'name': directory_name.replace("'", "").replace('"', ""), 'parent_directory_id': parent_directory_id, 'user_id': self.user['id']})
 
     def new_file(self, telegram_id, name, mime, size, directory_id=None):
         if (not directory_id):
             directory_id = self.path[-1:][0]
-        return db.insert('file', {'name': name.replace("'", "").replace('"', ""), 'mime': mime, 'size': size, 'telegram_id': telegram_id, 'directory_id': directory_id, 'user_id': self.user['id']})
+        return db.insert('files', {'name': name.replace("'", "").replace('"', ""), 'mime': mime, 'size': size, 'telegram_id': telegram_id, 'directory_id': directory_id, 'user_id': self.user['id']})
 
     def remove_files(self, file_ids):
         try:
-            file_ids_string = ', '.join([str(int(each)) for each in file_ids])
+            file_ids_string = ', '.join([(str(int(each))) for each in file_ids])
         except Exception as e:
             return False
-        db.delete('file', "id in (" + file_ids_string + ")")
+        db.delete('files', "id in (" + file_ids_string + ")")
 
     def remove_directories(self, directory_ids):
         try:
-            directory_ids_string = ', '.join([str(int(each)) for each in directory_ids])
+            directory_ids_string = ', '.join([(str(int(each))) for each in directory_ids])
         except Exception as e:
             return False
 
         for directory_id in directory_ids:
             content = self.get_directory_content(directory_id)
-            self.remove_files([each['id'] for each in content['files']])
-            self.remove_directories([each['id'] for each in content['directories']])
-        db.delete('directory', "id in (" + directory_ids_string + ")")
+            if (content['files']):
+                self.remove_files([each['id'] for each in content['files']])
+            if (content['directories']):
+                self.remove_directories([each['id'] for each in content['directories']])
+        db.delete('directories', "id in (" + directory_ids_string + ")")
 
 
-db = DbHandler('filex.db')
-explorers = {}
+
 API_TOKEN = ''
+WEBHOOK_URL = ''
+DB_URL = ''
+
+
+conn = psycopg2.connect(DB_URL)
+cur = conn.cursor()
+cur.execute('CREATE TABLE IF NOT EXISTS "users" (id SERIAL PRIMARY KEY, name VARCHAR(100), telegram_id INTEGER);')
+cur.execute('CREATE TABLE IF NOT EXISTS "files" (id SERIAL PRIMARY KEY, name VARCHAR(300), mime VARCHAR(100), size REAL, telegram_id INTEGER, directory_id INTEGER, user_id INTEGER);')
+cur.execute('CREATE TABLE IF NOT EXISTS "directories" (id SERIAL PRIMARY KEY, name VARCHAR(300), parent_directory_id INTEGER, user_id INTEGER);')
+conn.close()
+
+
+db = DbHandler(DB_URL)
+server = Flask(__name__)
+explorers = {}
 bot = telebot.TeleBot(API_TOKEN)
 mime_conv = {'application/epub+zip' : 'D', 'application/java-archive' : 'D', 'application/javascript' : 'D', 'application/json' : 'D', 'application/msword' : 'D', 'application/octet-stream' : 'D', 'application/octet-stream' : 'D', 'application/ogg' : 'A', 'application/pdf' : 'D', 'application/rtf' : 'D', 'application/vnd.amazon.ebook' : 'D', 'application/vnd.apple.installer+xml' : 'D', 'application/vnd.mozilla.xul+xml' : 'D', 'application/vnd.ms-excel' : 'D', 'application/vnd.ms-powerpoint' : 'D', 'application/vnd.oasis.opendocument.presentation' : 'D', 'application/vnd.oasis.opendocument.spreadsheet' : 'D', 'application/vnd.oasis.opendocument.text' : 'D', 'application/vnd.visio' : 'D', 'application/x-abiword' : 'D', 'application/x-bzip' : 'D', 'application/x-bzip2' : 'D', 'application/x-csh' : 'D', 'application/x-rar-compressed' : 'D', 'application/x-sh' : 'D', 'application/x-shockwave-flash' : 'D', 'application/x-tar' : 'D', 'application/xhtml+xml' : 'D', 'application/xml' : 'D', 'application/zip' : 'D', 'audio/aac' : 'A', 'audio/midi' : 'A', 'audio/ogg' : 'A', 'audio/webm' : 'A', 'audio/x-wav' : 'A', 'font/ttf' : 'D', 'font/woff' : 'D', 'font/woff2' : 'D', 'image/gif' : 'P', 'image/jpeg' : 'P', 'image/svg+xml' : 'P', 'image/tiff' : 'P', 'image/webp' : 'P', 'image/x-icon' : 'P', 'text/calendar' : 'D', 'text/css' : 'D', 'text/csv' : 'D', 'text/html' : 'D', 'video/3gpp' : 'V', 'video/3gpp2' : 'V', 'video/mpeg' : 'V', 'video/ogg' : 'V', 'video/webm' : 'V', 'video/x-msvideo' : 'V'}
 icon_mime = {'A' : '🎵', 'D' : '📄', 'P' : '🏞', 'U' : '❔', 'V' : '📹 '}
@@ -176,10 +192,10 @@ def start(message):
     telegram_id = message.from_user.id
 
     bot.send_message(telegram_id, help_message)
-    db.insert('user', {'name': message.from_user.username, 'telegram_id': telegram_id}, {'telegram_id' : telegram_id})
-    user_id = db.select('user', "telegram_id = " + str(telegram_id))[0]['id']
+    db.insert('users', {'name': message.from_user.username, 'telegram_id': telegram_id}, {'telegram_id' : telegram_id})
+    user_id = db.select('users', "telegram_id = " + str(telegram_id))[0]['id']
 
-    db.insert('directory', {'name': '/', 'parent_directory_id': 'NULL', 'user_id': user_id})
+    db.insert('directories', {'name': '/', 'parent_directory_id': "NULL", 'user_id': user_id})
 
     get_or_create_explorer(telegram_id)
     send_replacing_message(telegram_id, bot)
@@ -260,14 +276,15 @@ def callback(call):
         explorer.go_to_directory(content_id)
 
     elif (action == "f"):
-        content_id = db.select('file', "id = " + content_id)[0]['telegram_id']
+        content_id = db.select('files', "id = " + content_id)[0]['telegram_id']
         bot.forward_message(telegram_id, telegram_id, content_id)
 
     elif (action == "r"):
         markup = telebot.types.InlineKeyboardMarkup()
         markup.add(telebot.types.InlineKeyboardButton('✅', callback_data='c' + call.data))
         markup.add(telebot.types.InlineKeyboardButton('❌', callback_data='.'))
-        bot.send_message(telegram_id, "Are you sure?", reply_markup=markup)
+        message_sent = bot.send_message(telegram_id, "Are you sure?", reply_markup=markup)
+        explorer.last_action_message_ids.append(message_sent.message_id)
         return
 
     elif (action == "c"):
@@ -292,7 +309,6 @@ def remove_messages(telegram_id, bot):
                 explorer.last_action_message_ids.remove(message_id)
             except Exception as e:
                 print(e)
-                print("message_id: " + str(message_id))
     return result
 
 def get_or_create_explorer(id):
@@ -305,13 +321,13 @@ def content_builder(content, up=True):
     if (up):
         markup.add(telebot.types.InlineKeyboardButton('⤴️ Go up', callback_data='..'))
     if (content['directories']):
-        for each in content['directories']:
+        for each in sorted(content['directories'], key=lambda x: x['name'].lower()):
             markup.add(
                     telebot.types.InlineKeyboardButton("📁 " + each['name'], callback_data="d" + str(each['id'])),
                     telebot.types.InlineKeyboardButton("❌", callback_data="rd" + str(each['id'])),
                 )
     if (content['files']):
-        for each in content['files']:
+        for each in sorted(content['files'], key=lambda x: x['name'].lower()):
             if (each['mime'] in icon_mime):
                 icon = icon_mime[each['mime']]
             else:
@@ -330,4 +346,21 @@ def send_replacing_message(telegram_id, bot):
     message_sent = bot.send_message(telegram_id, "**Path:** " + explorer.get_path_string(), reply_markup=keyboard, parse_mode="Markdown")
     explorer.last_action_message_ids.append(message_sent.message_id)
 
-bot.polling()
+
+
+
+
+@server.route("/bot", methods=['POST'])
+def getMessage():
+    bot.process_new_updates([telebot.types.Update.de_json(request.stream.read().decode("utf-8"))])
+    return "!", 200
+
+@server.route("/")
+def webhook():
+    bot.remove_webhook()
+    bot.set_webhook(url=WEBHOOK_URL + "/bot")
+    return "!", 200
+
+server.run(host="0.0.0.0", port=os.environ.get('PORT', 5000))
+
+
