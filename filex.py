@@ -55,10 +55,6 @@ def help(message):
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    share_code = extract_unique_code(message.text)
-    if share_code:
-        handle_share(message)
-        return
     telegram_id = message.from_user.id
 
     already_user = (db.insert('users', {'name': message.from_user.username,
@@ -70,7 +66,30 @@ def start(message):
     db.insert('directories', {
               'name': '/', 'parent_directory_id': "NULL", 'user_id': user_id})
 
-    get_or_create_explorer(telegram_id)
+    share_code = extract_unique_code(message.text)
+    if share_code:
+        handle_share(message)
+
+
+@bot.message_handler(commands=['ls'])
+def ls(message):
+    telegram_id = message.from_user.id
+    send_replacing_message(telegram_id, bot)
+
+
+@bot.message_handler(commands=['rename'])
+def rename(message):
+    telegram_id = message.from_user.id
+    explorer = get_or_create_explorer(telegram_id)
+
+    if (len(explorer.path) == 1):
+        bot.send_message(telegram_id, "Can't rename root directory")
+    else:
+        new_name = extract_unique_code(message.text)
+        if (new_name != None and len(new_name) > 0):
+            new_name = new_name.replace("'", "").replace('"', '')
+            current_dir = explorer.get_current_dir()
+            db.insert('directories', {'name': new_name}, {'id': str(current_dir['id'])})
     send_replacing_message(telegram_id, bot)
 
 
@@ -129,7 +148,7 @@ def handle_docs(message, telegram_id=False):
             print("Unkown mime: " + message.document.mime_type)
             mime = 'U'
         explorer.new_file(
-            message.message_id, message.document.file_name, mime, message.document.file_size)
+            message.message_id, message.document.file_name.replace("'", "").replace('"', ''), mime, message.document.file_size)
     elif (message.audio != None):
         explorer.new_file(message.message_id, "audio" +
                           str(message.date), 'A', message.audio.file_size)
