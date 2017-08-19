@@ -10,23 +10,21 @@ class Explorer(object):
         self.files_per_page = files_per_page
         self.explorer_list_position = 0
         self.explorer_list_size = 0
+        self.last_sent_file = None
 
     def get_current_dir(self):
         cur_dir_id = self.path[-1]
         return self.db.select('directories', "id = " + str(cur_dir_id))[0]
 
     def get_path_string(self):
-        if (len(self.path) == 1):
-            return '/'
         try:
-            directory_ids_string = ', '.join(
-                [(str(int(each))) for each in self.path])
+            return '/' + ('/'.join([
+                self.db.select('directories', "id = " + str(directory))[0]['name']
+                for directory in self.path[1:]
+            ]))
         except Exception as e:
-            return False
-        directories = self.db.select(
-            'directories', "id in (" + directory_ids_string + ")")
-        directories[:] = [d for d in directories if d.get('name') != '/']
-        return '/' + ('/'.join([(directory['name']) for directory in directories]))
+            print(e)
+            return "Error getting path"
 
     def get_directory_content(self, directory_id=None):
         if (len(self.path) == 0):
@@ -44,8 +42,8 @@ class Explorer(object):
         shares = self.db._selectRaw('''SELECT 'shares' as type, shares.*, directories.name
                                     FROM shares
                                     JOIN directories ON directories.id = shares.directory_id
-                                    WHERE shares.user_id = ''' + str(self.user['id']) +
-                                    '''  AND shares.parent_directory_id = ''' + str(directory_id))
+                                    WHERE shares.user_id = {0}
+                                    AND shares.parent_directory_id = {1}'''.format(str(self.user['id']), str(directory_id)))
 
         directories = sorted(directories + shares, key=lambda x: x['name'].lower())
 

