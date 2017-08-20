@@ -54,15 +54,29 @@
     "video/webm": "V",
     "video/x-msvideo": "V"
   },
-  "icon_mime": {
-    "A": "🎵",
-    "D": "📄",
-    "P": "🏞",
-    "U": "❔",
-    "V": "📹 "
+  "icons": {
+    "OK": "✅",
+    "GO_UP": "⤴️",
+    "PREVIOUS_PAGE": "⏮",
+    "NEXT_PAGE": "⏭",
+    "DIR": "📁",
+    "SHARED_DIR": "👥",
+    "mime": {
+        "A": "🎵",
+        "D": "📄",
+        "P": "🏞",
+        "U": "❔",
+        "V": "📹 "
+      }
   },
   "help_message": " - Write /start to begin\n - You can send files, images, videos, etc. and they will be stored in your current path\n - If you write a message to the bot, it will make a directory with that name in the current path\n - If you want to rename the current directory, send /rename {new name}\n - If you want to rename a file, select it then reply to the message with the new file name. *This has a weird behaviour for now: it will rename the last selected file even if you reply to other message*\n - If you want to list your files, send /ls command\n - You can forward text messages from other chats and they will be stored as notes, or simply using /note and your note\n - You can delete files or directories using the red cross next to them\n - You can share a directory using the /share command on the directory you want to share\n - I have tried to make this bot as similar as possible to a basic file explorer\n - You can donate using /donate\n - Ideas and suggestions to @victor141516",
   "share_send": "Press this button and choose the person you want to share this directory to",
   "share_receive": "I want to share a directory with you using FileX bot. Press the button bellow, then press START in the bot",
-  "rename_root_error": "Can't rename root directory"
+  "rename_root_error": "Can't rename root directory",
+  "list_header": "**Path:** ",
+  "are_you_sure": "Are you sure?",
+  "inline_share_message": "Share directory",
+  "accept_share": "Accept",
+  "share_button": "This button",
+  "donate_button": "PayPal"
 }

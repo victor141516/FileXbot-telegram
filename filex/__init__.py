@@ -47,7 +47,7 @@ def help(message):
 def help(message):
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(telebot.types.InlineKeyboardButton(
-        'PayPal', url='https://www.paypal.me/victor141516'))
+        strings['donate_button'], url='https://www.paypal.me/victor141516'))
     bot.send_message(message.from_user.id, "Thank you!", reply_markup=markup)
 
 
@@ -110,7 +110,7 @@ def share(message):
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(
         telebot.types.InlineKeyboardButton(
-            "This button", switch_inline_query=query)
+            strings['share_button'], switch_inline_query=query)
     )
     bot.send_message(telegram_id, strings['share_send'], reply_markup=markup)
 
@@ -129,9 +129,9 @@ def default_query(inline_query):
         return
 
     markup = telebot.types.InlineKeyboardMarkup()
-    markup.add(telebot.types.InlineKeyboardButton('Accept', url="http://telegram.me/" + BOT_NAME + "?start=" + inline_query.query))
+    markup.add(telebot.types.InlineKeyboardButton(strinsg['accept_share'], url="http://telegram.me/" + BOT_NAME + "?start=" + inline_query.query))
     try:
-        r = telebot.types.InlineQueryResultArticle('1', 'Share directory', telebot.types.InputTextMessageContent(strings['share_receive']), reply_markup=markup)
+        r = telebot.types.InlineQueryResultArticle('1', strings['inline_share_message'], telebot.types.InputTextMessageContent(strings['share_receive']), reply_markup=markup)
         bot.answer_inline_query(inline_query.id, [r])
     except Exception as e:
         print(e)
@@ -234,11 +234,11 @@ def callback(call):
         markup = telebot.types.InlineKeyboardMarkup()
         markup.add(
             telebot.types.InlineKeyboardButton(
-                '✅', callback_data='c' + call.data),
+                strings['icons']['ok'], callback_data='c' + call.data),
             telebot.types.InlineKeyboardButton('❌', callback_data='.')
         )
         message_sent = bot.send_message(
-            telegram_id, "Are you sure?", reply_markup=markup)
+            telegram_id, strings['are_you_sure'], reply_markup=markup)
         explorer.last_action_message_ids.append(message_sent.message_id)
         return
 
@@ -289,27 +289,27 @@ def content_builder(content, up=True, previous_p=False, next_p=False):
 
     if (up):
         markup.add(telebot.types.InlineKeyboardButton(
-            '⤴️ Go up', callback_data='..'))
+            strings['icons']['go_up'] + ' Go up', callback_data='..'))
 
     if (previous_p):
         markup.add(telebot.types.InlineKeyboardButton(
-            '⏮ Previous', callback_data='p'))
+            strings['icons']['PREVIOUS_PAGE'] + ' Previous', callback_data='p'))
 
     for each in content:
         if (each["type"] == "directories"):
-            icon = "📁"
+            icon = strings['icons']['DIR']
             letter = "d"
             key = str(each["id"])
         elif (each["type"] == "shares"):
-            icon = "👥"
+            icon = strings['icons']['SHARED_DIR']
             letter = "s"
             key = str(each["directory_id"])
-        elif (each['mime'] in strings['icon_mime']):
-            icon = strings['icon_mime'][each['mime']]
+        elif (each['mime'] in strings['icons']['mime']):
+            icon = strings['icons']['mime'][each['mime']]
             letter = "f"
             key = str(each["id"]) + "-" + str(each['user_id'])
         else:
-            icon = strings['icon_mime']['U']
+            icon = strings['icons']['mime']['U']
             letter = "f"
             key = str(each["id"]) + "-" + str(each['user_id'])
 
@@ -322,7 +322,7 @@ def content_builder(content, up=True, previous_p=False, next_p=False):
 
     if (next_p):
         markup.add(telebot.types.InlineKeyboardButton(
-            'Next ⏭', callback_data='n'))
+            'Next ' + strings['icons']['NEXT_PAGE'], callback_data='n'))
 
     return markup
 
@@ -359,7 +359,7 @@ def send_replacing_message(telegram_id, bot):
     keyboard = content_builder(content, len(
         explorer.path) > 1, previous_p, next_p)
     message_sent = bot.send_message(
-        telegram_id, "**Path:** " + explorer.get_path_string(), reply_markup=keyboard, parse_mode="Markdown")
+        telegram_id, strings['list_header'] + explorer.get_path_string(), reply_markup=keyboard, parse_mode="Markdown")
     remove_messages(telegram_id, bot)
     explorer.last_action_message_ids.append(message_sent.message_id)
 
