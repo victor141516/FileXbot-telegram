@@ -2,5 +2,6 @@
 
 ## Install
  - Install Docker and Docker Compose
- - Edit `docker-compose.yml` file (follow comments there) as you wish
+ - Edit `.env.example` file (follow comments there) as you wish
+ - Rename `.env.example` to `.env`
  - Run `docker-compose up`
