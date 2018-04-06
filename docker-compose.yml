@@ -1,21 +1,12 @@
 version: "3.3"
 services:
-  telegram_bot:
+  filex-bot:
     build: ./
-    volumes:
-      - ./filex:/app/filex
-    ports:
-      - "4480:5000"
-      - "44443:443"
-    links:
-      - postgres
     env_file: .env
     restart: unless-stopped
 
-  postgres:
+  filex-postgres:
     image: postgres:9.6.1
     volumes:
       - ./database:/var/lib/postgresql/data
-    expose:
-      - "5432"
     env_file: .env
