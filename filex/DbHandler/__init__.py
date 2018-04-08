@@ -14,6 +14,7 @@ class DbHandler(object):
             time.sleep(5)
             try:
                 self.db = psycopg2.connect(self.db_name)
+                break
             except Exception as e:
                 pass
 
