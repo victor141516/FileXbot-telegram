@@ -10,3 +10,8 @@ services:
     volumes:
       - ./database:/var/lib/postgresql/data
     env_file: .env
+    
+networks:
+    default:
+        external:
+            name: net
